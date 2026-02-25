@@ -23,24 +23,24 @@
  * Teensy 4.1 dev board        : CS: 39, DC: 41, RST: 40, BL: 22, SCK: 13, MOSI: 11, MISO: 12
  ******************************************************************************/
 #include <Arduino_GFX_Library.h>
-
+#include <string>
 
 /*******************************************************************************
  *  Pin definitions
  ******************************************************************************/
 
 
-#define GFX_BL 15 // PIN_LCD_BL
+#define GFX_BL 15  // PIN_LCD_BL
 
-#define PIN_LCD_DC  16
-#define PIN_LCD_CS  17
-#define PIN_LCD_RST  20  // Also resets the TP
+#define PIN_LCD_DC 16
+#define PIN_LCD_CS 17
+#define PIN_LCD_RST 20  // Also resets the TP
 
-#define PIN_ADC_CS  5
+#define PIN_ADC_CS 5
 
-#define PIN_CLK0  18
-#define PIN_MOSI  19
-#define PIN_MISO  4
+#define PIN_CLK0 18
+#define PIN_MOSI 19
+#define PIN_MISO 4
 
 #define PIN_SDA 12
 #define PIN_SCL 13
@@ -49,9 +49,9 @@
 #define PIN_IMU_INT 14
 #define PIN_ENC_INT 2
 
-#define PIN_OUT1  7
-#define PIN_OUT2  9
-#define PIN_OUT3  8
+#define PIN_OUT1 7
+#define PIN_OUT2 9
+#define PIN_OUT3 8
 #define PIN_OUT4 22
 
 #define CHAR_M 2
@@ -63,17 +63,24 @@
 Arduino_DataBus *bus = new Arduino_RPiPicoSPI(PIN_LCD_DC /* DC */, PIN_LCD_CS /* CS */, PIN_CLK0 /* SCK */, PIN_MOSI /* MOSI */, -1 /* MISO */, spi0 /* spi */);
 Arduino_GFX *gfx = new Arduino_ST7789(bus, PIN_LCD_RST, 1 /* rotation */, true /* IPS */);
 
-volatile char box1_text[8] = '0.1hz',
-              box2_text[8] = '100hz',
-              box3_text[8] = '1000hz',
-              box4_text[8] = '10.0khz';
+std::string box1_text = "0.1h";
+std::string box2_text = "100h";
+std::string box3_text = "1000h";
+std::string box4_text = "10.0kh";
 
-void renderbox(int box, char[8] content, uint8_t color, uint8_t bgcolor){
-  
+void renderbox(int box, char *content) {
+  int row = 0;
+  char buf[7];
+  if (box > 3) { row = gfx->height() - BOX_H; };
+  int currentCursorX = gfx->getCursorX();
+  int currentCursorY = gfx->getCursorY();
+  gfx->setCursor(int(gfx->width() * box / 4), row);
+  sprintf(buf, "%6s", content);
+  gfx->printf(buf);
+  gfx->setCursor(currentCursorX, currentCursorY);
 };
 
-void setup(void)
-{
+void setup(void) {
 #ifdef DEV_DEVICE_INIT
   DEV_DEVICE_INIT();
 #endif
@@ -84,8 +91,7 @@ void setup(void)
   Serial.println("Arduino_GFX Hello World example");
 
   // Init Display
-  if (!gfx->begin())
-  {
+  if (!gfx->begin()) {
     Serial.println("gfx->begin() failed!");
   }
   gfx->fillScreen(RGB565_BLACK);
@@ -94,36 +100,31 @@ void setup(void)
   pinMode(GFX_BL, OUTPUT);
   digitalWrite(GFX_BL, HIGH);
 #endif
- 
+
   gfx->setTextSize(CHAR_M);
 
   gfx->setTextColor(RGB565_ORANGE);
-  gfx->setCursor(0,0);
-  gfx->printf(box1_text);
-  gfx->setCursor(int(gfx->width()/4),0);
-  gfx->printf("    20hz");
-  
-  gfx->setCursor(int(gfx->width()/2),0);
-  gfx->printf("  1200hz");
-
-  gfx->setCursor(int(gfx->width()*3/4),0);
-  gfx->printf("   0.1hz");
+  gfx->setCursor(0, 0);
 
   gfx->startWrite();
-  gfx->writeFastHLine(0,BOX_H,gfx->width(),random(0xffff));
-  gfx->writeFastHLine(0,gfx->height() - BOX_H,gfx->width(),random(0xffff));
+  gfx->writeFastHLine(0, BOX_H, gfx->width(), random(0xffff));
+  gfx->writeFastHLine(0, gfx->height() - BOX_H, gfx->width(), random(0xffff));
   gfx->writeFastVLine(int(gfx->width() / 4), 0, BOX_H, random(0xffff));
   gfx->writeFastVLine(int(gfx->width() / 2), 0, BOX_H, random(0xffff));
-  gfx->writeFastVLine(int(gfx->width() *3/ 4), 0, BOX_H, random(0xffff));
+  gfx->writeFastVLine(int(gfx->width() * 3 / 4), 0, BOX_H, random(0xffff));
   gfx->endWrite();
+
+
+  renderbox(0, &box1_text[0]);
+  renderbox(1, &box2_text[0]);
+  renderbox(2, &box3_text[0]);
+  renderbox(3, &box4_text[0]);
 
   delay(1000);
 }
 
 int i = 1;
-void loop()
-{
- 
-  
+void loop() {
+
   delay(1000);
 }
