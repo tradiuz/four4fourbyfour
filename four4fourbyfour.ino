@@ -37,7 +37,7 @@
  ******************************************************************************/
 
 #define HW_TIMER_INTERVAL_US 20L
-// #define USING_LFO_FREQUENCY  true
+#define USING_PWM_FREQUENCY  true
 #define NUMBER_ISR_PWMS 4
 
 /*******************************************************************************
@@ -68,37 +68,38 @@ bool TimerHandler(struct repeating_timer *t) {
   return true;
 }
 
-#define NUMBER_LFOS 3
-uint32_t LFO_Pin[] = {
-  PIN_OUT1, PIN_OUT2, PIN_OUT3
-};
-
 #define CLOCK_PPQ 24
-#define NUMBER_CLOCKS 1
-uint32_t CLOCK_Pin[] = {
-  PIN_OUT4
+
+uint16_t theme_bg = RGB565_BLACK,
+         theme_line = RGB565_BLUE,
+         theme_main = RGB565_BLUE,
+         theme_alt = RGB565_LIME,
+         theme_text = RGB565_ORANGE;
+volatile uint16_t theme_beat = RGB565_BLACK;
+
+volatile uint8_t tick=0;
+volatile bool beat;
+void tick_beat(){
+  tick = (tick + 1) % CLOCK_PPQ;
+  if (tick == 0) {
+    beat = true;
+  }
 };
 
-float LFO_Freq[] = {
-  .1f, 101.0f, 10000.0f
+typedef struct {
+  uint8_t pin;
+  float frequency;
+  bool clock;
+  void (*callback)();
+} Oscillator;
+
+Oscillator osc[]={
+  { PIN_OUT1, 1.0f, false},
+  { PIN_OUT2, 10.0f, false},
+  { PIN_OUT3, 100.0f, false},
+  { PIN_OUT4, float(60.0f * CLOCK_PPQ) / 240.0f , true, tick_beat}
 };
 
-uint8_t CLOCK_BPM[] = {
-  100
-};
-
-void lfo1(){};
-
-void lfo2(){};
-
-void lfo3(){};
-
-void clock1(){};
-
-/*
-irqCallback irqCallbackStartFunc[] = {
-  lfo1, lfo2, lfo3, lfo4
-};*/
 
 /*******************************************************************************
  *  Display Setup
@@ -108,9 +109,7 @@ irqCallback irqCallbackStartFunc[] = {
 Arduino_DataBus *bus = new Arduino_RPiPicoSPI(PIN_LCD_DC /* DC */, PIN_LCD_CS /* CS */, PIN_CLK0 /* SCK */, PIN_MOSI /* MOSI */, -1 /* MISO */, spi0 /* spi */);
 Arduino_GFX *gfx = new Arduino_ST7789(bus, PIN_LCD_RST, 1 /* rotation */, true /* IPS */);
 
-uint16_t theme_bg = RGB565_BLACK,
-         theme_line = RGB565_BLUE,
-         theme_text = RGB565_ORANGE;
+
 
 void renderbox(uint8_t col, int8_t row, float value, std::string unit) {
   uint16_t col_x, row_y;
@@ -124,7 +123,7 @@ void renderbox(uint8_t col, int8_t row, float value, std::string unit) {
     }
     snprintf(buf, 6, " %*f", 4, value);
   } else {
-    snprintf(buf, 6, " %*.0f", 4, value);
+    snprintf(buf, 6, " %*.0f", 4, unit == "bpm" ? (value * 240.0f) / float(CLOCK_PPQ) : value);
   }
   col_x = gfx->width() * col / 4;
   if (row >= 0) {
@@ -143,9 +142,35 @@ void renderbox(uint8_t col, int8_t row, float value, std::string unit) {
   gfx->setCursor(currentCursorX, currentCursorY);
 };
 
+#include "math.h"
+
+void writePolygon(int16_t x, int16_t y, int16_t r, uint8_t f, uint16_t d, uint16_t color)
+{ 
+  int px[f],py[f];
+  for (int i = 0; i < f; i++) {
+        double a = (2 * PI / f) * i + (d * PI / 180);
+        Serial.printf("Angle: %f [%d degrees]\n",a, int(a*180/PI));
+        px[i] = x + r * cos(a);
+        py[i] = y + r * sin(a);
+    }
+    for (int i = 0; i< f - 1; i++){
+      gfx->writeSlashLine(px[i], py[i], px[i+1], py[i+1], color);
+    }
+      gfx->writeSlashLine(px[f-1], py[f-1], px[0], py[0], color);
+}
+
+
+void drawPolygon(int16_t x, int16_t y, int16_t r, uint8_t f, uint16_t d, uint16_t color)
+{ 
+    gfx->startWrite();
+    writePolygon(x, y, r, f, d, color);
+    gfx->endWrite();
+}
+
 uint8_t box_c = 0;
 
 void setup(void) {
+
 #ifdef DEV_DEVICE_INIT
   DEV_DEVICE_INIT();
 #endif
@@ -183,19 +208,17 @@ void setup(void) {
   gfx->endWrite();
 
   box_c = 0;
-  for (uint8_t index = 0; index < NUMBER_LFOS; index++) {
-    ISR_PWM.setPWM_Period(LFO_Pin[index], 1000 / LFO_Freq[index], 50);
-    renderbox(box_c % 4, int(box_c / 4), LFO_Freq[index], "hz");
+  for (uint8_t index = 0; index < 4; index++) {
+    ISR_PWM.setPWM(osc[index].pin, osc[index].frequency , 50, osc[index].clock ? osc[index].callback : nullptr);
+    renderbox(box_c % 4, int(box_c / 4), osc[index].frequency, osc[index].clock ? "bpm" : "hz");
     box_c++;
   }
-  for (uint8_t index = 0; index < NUMBER_CLOCKS; index++) {
-    ISR_PWM.setPWM_Period(CLOCK_Pin[index], 60000 / CLOCK_BPM[index] / CLOCK_PPQ, 50);
-    renderbox(box_c % 4, int(box_c / 4), CLOCK_BPM[index], "bpm");
-    box_c++;
-  }
+
   renderbox(box_c % 4, int(box_c / 4), -20, "db");
   box_c++;
-  delay(10000);
+
+  delay(1000);
+
 
 
   if (!ITimer.attachInterruptInterval(HW_TIMER_INTERVAL_US, TimerHandler)) {
@@ -203,8 +226,40 @@ void setup(void) {
   }
 }
 
+typedef struct {
+    uint16_t x; // Center X
+    uint16_t y; // Center Y
+    uint16_t r;  // Radius
+    uint8_t f;  // Faces
+    uint16_t d; // Rotation (Degrees)
+} Polygon;
+
+Polygon poly[3];
 
 void loop() {
+  box_c = 0;
+  gfx->startWrite();
+  for (int gon = 0; gon < 3; gon++){
+    writePolygon( poly[gon].x, poly[gon].y, poly[gon].r, poly[gon].f, poly[gon].d , theme_bg);
+    poly[gon] = {int(gfx->width() * (gon+1)/4), int(gfx->height()/2), 30, gon+3, (poly[gon].d + 10) % 360};
+    writePolygon( poly[gon].x, poly[gon].y, poly[gon].r, poly[gon].f, poly[gon].d , theme_line);
+  }
+  if(beat){
+    theme_beat = theme_beat == theme_alt? theme_main : theme_alt;
+    gfx->writeFillRect(gfx->width() - 5 , BOX_H + 2, 3 , BOX_H - 4, theme_beat);
+    beat = false;
+  }
+  for (uint8_t index = 0; index < 4; index++) {
+    ISR_PWM.setPWM(osc[index].pin, osc[index].frequency , 50, osc[index].clock ? osc[index].callback : nullptr);
+    renderbox(box_c % 4, int(box_c / 4), osc[index].frequency, osc[index].clock ? "bpm" : "hz");
+    box_c++;
+  }
+  gfx->endWrite();
+  delay(20);
+}
+
+/*
+void nothin(){
   box_c = 0;
 
   for (uint8_t index = 0; index < NUMBER_LFOS; index++) {
@@ -218,9 +273,10 @@ void loop() {
   for (uint8_t index = 0; index < NUMBER_CLOCKS; index++) {
     CLOCK_BPM[index] = 40 + random(200);
     Serial.printf("Clock: %d : %5.1f bpm\n", index + 1, CLOCK_BPM[index]);
-    ISR_PWM.modifyPWMChannel_Period(index + NUMBER_LFOS, CLOCK_Pin[index], 60000 / CLOCK_BPM[index] / CLOCK_PPQ, 50);
+    ISR_PWM.modifyPWMChannel_Period(index + NUMBER_LFOS -1, CLOCK_Pin[index], 60000 / CLOCK_BPM[index] / CLOCK_PPQ, 50);
     renderbox(box_c % 4, int(box_c / 4), CLOCK_BPM[index], "bpm");
     box_c++;
   }
   delay(6000);
 }
+*/
