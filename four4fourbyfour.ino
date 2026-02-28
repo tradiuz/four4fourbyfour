@@ -32,6 +32,13 @@
 #define PIN_OUT3 8
 #define PIN_OUT4 22
 
+
+#define PIN_IN1 0
+#define PIN_IN2 1
+#define PIN_IN3 2
+#define PIN_IN4 3
+
+
 /*******************************************************************************
  *  PWM Settings
  ******************************************************************************/
@@ -72,18 +79,57 @@ bool TimerHandler(struct repeating_timer *t) {
 
 uint16_t theme_bg = RGB565_BLACK,
          theme_line = RGB565_BLUE,
-         theme_main = RGB565_BLUE,
+         theme_main = RGB565_RED,
          theme_alt = RGB565_LIME,
          theme_text = RGB565_ORANGE;
 volatile uint16_t theme_beat = RGB565_BLACK;
 
+typedef struct {
+  uint8_t col;
+  uint8_t row;
+  uint16_t color;
+}
+Box;
+
+Box box[] = {
+  {0,0, RGB565(0xff,0x00,0x00)},
+  {1,0, RGB565(0x00,0xff,0x00)},
+  {2,0, RGB565(0x00,0x00,0xff)},
+  {3,0, RGB565(0xff,0xff,0xff)}
+};
+
 volatile uint8_t tick=0;
 volatile bool beat;
+
+
+
+void gate(){
+ // box[index].color = box[index].color == theme_main ? theme_alt : theme_main;
+};
+void reset_clock(){
+  tick = 0;
+  beat = true;
+};
+
 void tick_beat(){
   tick = (tick + 1) % CLOCK_PPQ;
   if (tick == 0) {
     beat = true;
   }
+};
+
+typedef struct {
+  uint8_t pin;
+  float value;
+  bool gate;
+  void (*callback)();
+} ADC_Input;
+
+ADC_Input adc[]={
+  {PIN_IN1, 1337.0f, false},
+  {PIN_IN2, 1337.0f, false},
+  {PIN_IN3, 1337.0f, true, gate},
+  {PIN_IN4, 1337.0f, true, reset_clock},
 };
 
 typedef struct {
@@ -97,7 +143,7 @@ Oscillator osc[]={
   { PIN_OUT1, 1.0f, false},
   { PIN_OUT2, 10.0f, false},
   { PIN_OUT3, 100.0f, false},
-  { PIN_OUT4, float(60.0f * CLOCK_PPQ) / 240.0f , true, tick_beat}
+  { PIN_OUT4, float(120.0f * CLOCK_PPQ) / 240.0f , true, tick_beat}
 };
 
 
@@ -205,21 +251,21 @@ void setup(void) {
   gfx->writeFastHLine(0, BOX_H * 2, gfx->width(), theme_line);
   gfx->writeFastHLine(0, gfx->height() - BOX_H, gfx->width(), theme_line);
   gfx->writeFillRectPreclipped(0, BOX_H * 2 + 1, gfx->width(), gfx->height() - (BOX_H * 3) - 2, theme_bg);
-  gfx->endWrite();
-
+  
   box_c = 0;
   for (uint8_t index = 0; index < 4; index++) {
+    gfx->writeFillRectPreclipped(uint8_t(gfx->width() * box[box_c].col / 4), BOX_H * uint8_t(box[box_c].row / 4),uint8_t(gfx->width() / 4) -2, BOX_H -2, box[box_c].color);    
+    box_c++;
+  }
+  gfx->endWrite();
+
+  for (uint8_t index = 0; index < 4; index++) {
     ISR_PWM.setPWM(osc[index].pin, osc[index].frequency , 50, osc[index].clock ? osc[index].callback : nullptr);
-    renderbox(box_c % 4, int(box_c / 4), osc[index].frequency, osc[index].clock ? "bpm" : "hz");
+    renderbox(box_c % 4, uint16_t(box_c / 4), osc[index].frequency, osc[index].clock ? "bpm" : "hz");
     box_c++;
   }
 
-  renderbox(box_c % 4, int(box_c / 4), -20, "db");
-  box_c++;
-
-  delay(1000);
-
-
+  delay(100);
 
   if (!ITimer.attachInterruptInterval(HW_TIMER_INTERVAL_US, TimerHandler)) {
     Serial.println("SLOW PWM startup failed!");
@@ -237,21 +283,21 @@ typedef struct {
 Polygon poly[3];
 
 void loop() {
-  box_c = 0;
+  box_c = 4;
   gfx->startWrite();
   for (int gon = 0; gon < 3; gon++){
     writePolygon( poly[gon].x, poly[gon].y, poly[gon].r, poly[gon].f, poly[gon].d , theme_bg);
-    poly[gon] = {int(gfx->width() * (gon+1)/4), int(gfx->height()/2), 30, gon+3, (poly[gon].d + 10) % 360};
+    poly[gon] = {uint16_t(gfx->width() * (gon+1)/4), uint16_t(gfx->height()/2), 30, gon+3, (poly[gon].d + 10) % 360};
     writePolygon( poly[gon].x, poly[gon].y, poly[gon].r, poly[gon].f, poly[gon].d , theme_line);
   }
   if(beat){
     theme_beat = theme_beat == theme_alt? theme_main : theme_alt;
-    gfx->writeFillRect(gfx->width() - 5 , BOX_H + 2, 3 , BOX_H - 4, theme_beat);
+    gfx->writeFillRect(gfx->width() - 5 , BOX_H + 2, 3 , 4, theme_beat);
     beat = false;
   }
   for (uint8_t index = 0; index < 4; index++) {
     ISR_PWM.setPWM(osc[index].pin, osc[index].frequency , 50, osc[index].clock ? osc[index].callback : nullptr);
-    renderbox(box_c % 4, int(box_c / 4), osc[index].frequency, osc[index].clock ? "bpm" : "hz");
+    renderbox(box_c % 4, uint16_t(box_c / 4), osc[index].frequency, osc[index].clock ? "bpm" : "hz");
     box_c++;
   }
   gfx->endWrite();
